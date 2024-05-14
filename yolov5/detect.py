@@ -157,7 +157,7 @@ def run(
             # 그 외의 경우에는 im 텐서를 직접 모델에 입력하여 추론을 수행
             else:
                 pred = model(im, augment=augment, visualize=visualize)
-            # 결과를 pred에 저장ㄴㄴ
+            # 결과를 pred에 저장
         # NMS
         with dt[2]:
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
@@ -255,9 +255,9 @@ def run(
                         #save_crop 옵션이 True이면, save_one_box 함수를 호출하여 잘린 객체 이미지를 저장합니다. xyxy는 바운딩 박스 좌표, imc는 원본 이미지의 복사본입니다. 저장 경로는 save_dir/crops/클래스이름/파일이름.jpg입니다. BGR=True는 OpenCV의 BGR 색상 포맷을 사용한다는 의미
 
             # Stream results
-            im0 = annotator.result()
+            im0 = annotator.result() # YOLOv5 모델의 결과를 이미지로 반환하는 메서드
             if view_img:
-                if platform.system() == "Linux" and p not in windows:
+                if platform.system() == "Linux" and p not in windows: # 리눅스 환경 이미지 출력
                     windows.append(p)
                     cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
@@ -266,15 +266,15 @@ def run(
 
             # Save results (image with detections)
             if save_img:
-                if dataset.mode == "image":
+                if dataset.mode == "image": # 이미지 im0를 save_path에 저장
                     cv2.imwrite(save_path, im0)
                 else:  # 'video' or 'stream'
-                    if vid_path[i] != save_path:  # new video
-                        vid_path[i] = save_path
+                    if vid_path[i] != save_path:  # vid_path[i]가 save_path와 다르면 새로운 비디오 파일을 여는 것
+                        vid_path[i] = save_path   
                         if isinstance(vid_writer[i], cv2.VideoWriter):
-                            vid_writer[i].release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            vid_writer[i].release()  # 이전에 열린 vid_writer[i]가 있다면 해제
+                        if vid_cap:  # video이면 vid_cap에서 FPS, 가로 해상도, 세로 해상도를 가져옵니다.
+                            fps = vid_cap.get(cv2.CAP_PROP_FPS) 
                             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         else:  # stream
@@ -287,7 +287,9 @@ def run(
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
 
     # Print results
-    t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
+    # dt: 시간 측정값들의 리스트
+    t = tuple(x.t / seen * 1e3 for x in dt)  # x.t / seen * 1e3는 각 이미지당 걸린 시간을 밀리초 단위로 변환
+    # t는 전처리, 추론, NMS 시간의 튜플로 저장
     LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ""
