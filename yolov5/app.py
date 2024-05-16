@@ -12,8 +12,10 @@ app = Flask(__name__)
 
 # 업로드된 파일이 저장될 디렉토리 경로
 UPLOAD_FOLDER = 'uploads'
+video_folder = "video_uploads"
+reference_folder = 'reference'
 # 허용할 파일 확장자
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov'}
 detect_folder =""
 # 파일 확장자를 체크하는 함수
 def allowed_file(filename):
@@ -61,7 +63,6 @@ def upload_file():
         # 파일을 저장할 경로 설정
         # os.path.join : 인수에 전달된 2개의 문자열을 결합하여, 1개의 경로로 할 수 있다. 인자 사이에는 /가 포함됨.
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-
         
         # 파일 저장
         file.save(filepath)
@@ -92,6 +93,40 @@ def upload_file():
     else:
         return 'Allowed file types are png, jpg, jpeg, gif'
 
+# 비디오 파일 처리를 위한 라우트 추가
+@app.route('/detect_video', methods=['POST'])
+def upload_video():
+    detect_folder = ""
+    if 'file' not in request.files:
+        return 'No file part'
+    file = request.files['file']
+    ratio = request.form['ratio']
 
+    if file.filename == '':
+        return 'No selected file'
+
+    if file and allowed_file(file.filename):
+        if not os.path.exists(video_folder):
+            os.makedirs(video_folder)
+
+        filepath = os.path.join(video_folder, file.filename)
+        file.save(filepath)
+        video_path = filepath
+
+        os.system(f'python detect.py --weights best.pt --img 640 --conf 0.25 --source "{video_path}"')
+
+        exp_folders = [f.path for f in os.scandir("runs/detect") if f.is_dir() and f.name.startswith('exp')]
+        exp_folders.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+
+        if exp_folders:
+            detect_folder = exp_folders[0]
+            print(f"detect-folder: {detect_folder}")
+        else:
+            print("'exp' 로 시작하는 폴더가 없습니다.")
+
+        detect_path = os.path.join(detect_folder, file.filename)
+        return read_image(detect_path)
+    else:
+        return 'Allowed file types are png, jpg, jpeg, gif, mp4, avi, mov'
 if __name__ == '__main__':
     app.run(debug=True, host='127.0.0.1', port= 5000)
