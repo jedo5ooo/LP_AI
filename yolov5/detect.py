@@ -33,9 +33,15 @@ import csv
 import os
 import platform
 import sys
+import pathlib
+import face_recognition
 from pathlib import Path
+import numpy as np
 
 import torch
+
+temp = pathlib.PosixPath
+pathlib.PosixPath = pathlib.WindowsPath
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -68,9 +74,9 @@ from utils.torch_utils import select_device, smart_inference_mode
 
 @smart_inference_mode()
 def run(
-    weights=ROOT / "yolov5s.pt",  # model path or triton URL
+    weights=ROOT / "best.pt",  # model path or triton URL
     source=ROOT / "data/images",  # file/dir/URL/glob/screen/0(webcam)
-    data=ROOT / "data/coco128.yaml",  # dataset.yaml path
+    data=ROOT / "data/widerface.yaml",  # dataset.yaml path
     imgsz=(640, 640),  # inference size (height, width)
     conf_thres=0.25,  # confidence threshold
     iou_thres=0.45,  # NMS IOU  threshold
@@ -96,6 +102,8 @@ def run(
     half=False,  # use FP16 half-precision inference
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
+    ratio= 50,
+    reference = "reference_face.jpg"
 ):
     source = str(source) # source는 이미지, 비디오, 웹캠 등의 입력 소스를 나타내는 변수
     save_img = not nosave and not source.endswith(".txt")  # save inference images 추론 결과 이미지로 저장할 것인지
@@ -212,6 +220,31 @@ def run(
                     n = (det[:, 5] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
+                # 모자이크 처리 제외 reference_face
+                reference_face_path = reference
+                if reference_face_path:
+                    reference_face = cv2.imread(reference_face_path)
+                    reference_face_locations = face_recognition.face_locations(reference_face)
+                    print("Reference face locations:", reference_face_locations)
+                    
+                    if len(reference_face_locations) > 0:
+                        top, right, bottom, left = reference_face_locations[0]
+                        reference_face_image = reference_face[top:bottom, left:right]
+                        reference_face_image = np.array(reference_face_image, dtype=np.uint8)
+                        reference_face_encodings = face_recognition.face_encodings(reference_face_image)
+                        
+                        if len(reference_face_encodings) > 0:
+                            reference_face_encoding = reference_face_encodings[0]
+                            print("Reference face encoding:", reference_face_encoding)
+                        else:
+                            print("Failed to encode reference face.")
+                            reference_face_encoding = None
+                    else:
+                        print("No face detected in the reference image.")
+                        reference_face_encoding = None
+                else:
+                    reference_face_encoding = None
+
                 # Write results
                 # 각 객체의 바운딩 박스 좌표(xyxy), 신뢰도(conf), 클래스(cls)를 가져옵니다.
                 for *xyxy, conf, cls in reversed(det):
@@ -231,19 +264,51 @@ def run(
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
-                        if names[c] == 'person':
+                        if names[c] == 'face':
                             # bounding box 좌표 추출
                             # 탐지된 객체의 바운딩 박스 좌표(xyxy)를 정수형으로 변환하여 x1, y1, x2, y2에 저장합니다. 그리고 원본 이미지(im0)에서 해당 영역(roi)을 추출합니다.
                             x1, y1, x2, y2 = map(int, xyxy)
+                            face = im0[y1:y2, x1:x2]
                             
-                            # 모자이크할 영역 선택
-                            roi = im0[y1:y2, x1:x2]
-                            # 모자이크 처리
-                            roi = cv2.resize(roi, (0, 0), fx=0.05, fy=0.05)  # 모자이크 처리할 영역 축소
-                            roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
-                            # 모자이크 적용
-                            # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
-                            im0[y1:y2, x1:x2] = roi    
+                            face_locations = face_recognition.face_locations(face)
+                            print("Detected face locations:", face_locations)
+                            
+                            if len(face_locations) > 0:
+                                top, right, bottom, left = face_locations[0]
+                                face_image = face[top:bottom, left:right]
+                                face_image = np.array(face_image, dtype=np.uint8)  # Convert face_image to numpy.ndarray
+                                face_encodings = face_recognition.face_encodings(face_image)
+                                
+                                if len(face_encodings) > 0:
+                                    face_encoding = face_encodings[0]
+                                    
+                                    if reference_face_encoding is not None:
+                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.5)[0]
+                                        print("compare_faces로 비교한 result:", match)
+                                        
+                                        if not match:
+                                            # 일치하지 않는 얼굴만 모자이크 처리
+                                            roi = im0[y1+top:y1+bottom, x1+left:x1+right]
+                                            roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)
+                                            roi = cv2.resize(roi, (right-left, bottom-top), interpolation=cv2.INTER_NEAREST)
+                                            im0[y1+top:y1+bottom, x1+left:x1+right] = roi
+                                # else: # 모두 매치하지 않을 경우 모두 모자이크 -> 코드
+                                #     roi = im0[y1:y2, x1:x2]
+                                #     # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
+                                #     roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                #     roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                #     # 모자이크 적용
+                                #     # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
+                                #     im0[y1:y2, x1:x2] = roi  
+                            else:
+                                # reference_face가 없는 경우 모든 얼굴 모자이크 처리
+                                roi = im0[y1:y2, x1:x2]
+                                # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
+                                roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                # 모자이크 적용
+                                # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
+                                im0[y1:y2, x1:x2] = roi    
                         
                         # else:
                             # 그리고 hide_labels와 hide_conf 옵션에 따라 출력할 레이블 텍스트를 결정
@@ -301,9 +366,9 @@ def run(
 def parse_opt():
     """Parses command-line arguments for YOLOv5 detection, setting inference options and model configurations."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "yolov5s.pt", help="model path or triton URL")
+    parser.add_argument("--weights", nargs="+", type=str, default=ROOT / "best.pt", help="model path or triton URL")
     parser.add_argument("--source", type=str, default=ROOT / "data/images", help="file/dir/URL/glob/screen/0(webcam)")
-    parser.add_argument("--data", type=str, default=ROOT / "data/coco128.yaml", help="(optional) dataset.yaml path")
+    parser.add_argument("--data", type=str, default=ROOT / "data/widerface.yaml", help="(optional) dataset.yaml path")
     parser.add_argument("--imgsz", "--img", "--img-size", nargs="+", type=int, default=[640], help="inference size h,w")
     parser.add_argument("--conf-thres", type=float, default=0.25, help="confidence threshold")
     parser.add_argument("--iou-thres", type=float, default=0.45, help="NMS IoU threshold")
@@ -329,6 +394,9 @@ def parse_opt():
     parser.add_argument("--half", action="store_true", help="use FP16 half-precision inference")
     parser.add_argument("--dnn", action="store_true", help="use OpenCV DNN for ONNX inference")
     parser.add_argument("--vid-stride", type=int, default=1, help="video frame-rate stride")
+    parser.add_argument('--ratio', type=int, default=50, help='multiple ratio to mosaic_ratio')
+    parser.add_argument("--reference", type=str, default=ROOT / "reference_face.jpg", help="reference face image path")
+
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))

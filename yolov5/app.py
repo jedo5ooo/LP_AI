@@ -33,14 +33,20 @@ def read_image(file_path):
 def home():
     return render_template('index.html')
 
+reference_face_path = "data/reference_face.jpg"
 # 이미지 업로드 라우트
 @app.route('/detect', methods=['POST'])
 def upload_file():
+    detect_folder =""
     # 파일이 업로드 되었는지 확인
     if 'file' not in request.files:
         return 'No file part'
     
     file = request.files['file']
+    ratio = request.form['ratio']
+
+    print(type(ratio))
+    print(ratio)
 
     # 파일이 비어 있는지 확인
     if file.filename == '':
@@ -65,7 +71,7 @@ def upload_file():
         # terminal 명령어 파이썬 내에서 실행
         # os.system(f'copy "{filepath}" "{os.path.join(UPLOAD_FOLDER, "hello2.jpg")}"')
         # python detect.py --weights yolov5s.pt --img 640 --conf 0.25 --source data/images/zidane.jpg
-        os.system(f'python detect.py --weights yolov5s.pt --img 640 --conf 0.25 --source "{dir_path}"')
+        os.system(f'python detect.py --weights best.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --reference "{reference_face_path}"')
 
 
         # 기존에 생성된 exp 폴더의 번호 중 가장 큰 번호 찾기
