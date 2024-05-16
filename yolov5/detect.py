@@ -283,7 +283,7 @@ def run(
                                     face_encoding = face_encodings[0]
                                     
                                     if reference_face_encoding is not None:
-                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.5)[0]
+                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.5)[0] # tolerence: 비교할 때 기준 확률 정하는 매개변수
                                         print("compare_faces로 비교한 result:", match)
                                         
                                         if not match:
