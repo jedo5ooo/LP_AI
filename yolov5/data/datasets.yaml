@@ -1,0 +1,23 @@
+# Path
+train:
+  - ../datasets/widerface/train
+  - ../datasets/licensePlate/train
+  - ../datasets/cigar/smoking1/train
+  - ../datasets/cigar/smoking2/train
+  - ../datasets/knife/weapon1/train
+  - ../datasets/knife/weapon2/train
+
+val:
+  - ../datasets/widerface/valid
+  - ../datasets/licensePlate/valid
+  - ../datasets/cigar/smoking1/valid
+  - ../datasets/cigar/smoking2/valid
+  - ../datasets/knife/weapon1/valid
+  - ../datasets/knife/weapon2/valid
+
+# Classes
+names:
+  0: face
+  1: licensePlate
+  2: cigar
+  3: knife

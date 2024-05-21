@@ -1,7 +1,7 @@
 # YOLOv5 🚀 by Ultralytics, AGPL-3.0 license
 """
 Run YOLOv5 detection inference on images, videos, directories, globs, YouTube, webcam, streams, etc.
-
+# 이미지 얼굴 식별 + 나머지 모자이크
 Usage - sources:
     $ python detect.py --weights yolov5s.pt --source 0                               # webcam
                                                      img.jpg                         # image
@@ -37,7 +37,6 @@ import pathlib
 import face_recognition
 from pathlib import Path
 import numpy as np
-
 import torch
 
 temp = pathlib.PosixPath
@@ -264,6 +263,13 @@ def run(
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
+                        if names[c] == 'cigar' or names[c] == 'licensePlate' or names[c] == 'knife':
+                            x1, y1, x2, y2 = map(int, xyxy)
+                            roi = im0[y1:y2, x1:x2]
+                            roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                            roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                            im0[y1:y2, x1:x2] = roi
+
                         if names[c] == 'face':
                             # bounding box 좌표 추출
                             # 탐지된 객체의 바운딩 박스 좌표(xyxy)를 정수형으로 변환하여 x1, y1, x2, y2에 저장합니다. 그리고 원본 이미지(im0)에서 해당 영역(roi)을 추출합니다.
@@ -283,7 +289,7 @@ def run(
                                     face_encoding = face_encodings[0]
                                     
                                     if reference_face_encoding is not None:
-                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.5)[0] # tolerence: 비교할 때 기준 확률 정하는 매개변수
+                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.52)[0] # tolerence: 비교할 때 기준 확률 정하는 매개변수
                                         print("compare_faces로 비교한 result:", match)
                                         
                                         if not match:
@@ -320,7 +326,7 @@ def run(
                         #save_crop 옵션이 True이면, save_one_box 함수를 호출하여 잘린 객체 이미지를 저장합니다. xyxy는 바운딩 박스 좌표, imc는 원본 이미지의 복사본입니다. 저장 경로는 save_dir/crops/클래스이름/파일이름.jpg입니다. BGR=True는 OpenCV의 BGR 색상 포맷을 사용한다는 의미
 
             # Stream results
-            im0 = annotator.result() # YOLOv5 모델의 결과를 이미지로 반환하는 메서드
+            # im0 = annotator.result() # YOLOv5 모델의 결과를 이미지로 반환하는 메서드
             if view_img:
                 if platform.system() == "Linux" and p not in windows: # 리눅스 환경 이미지 출력
                     windows.append(p)
@@ -342,9 +348,11 @@ def run(
                             fps = vid_cap.get(cv2.CAP_PROP_FPS) 
                             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            # 비트레이트 설정
+                            # bitrate = vid_cap.get(cv2.CAP_PROP_BITRATE)
                         else:  # stream
                             fps, w, h = 30, im0.shape[1], im0.shape[0]
-                        save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos
+                        save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos 코덱 -> 코덱의 종류가 다를 경우 문제가 될 수 있음. 찾아봐야함.
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
                     vid_writer[i].write(im0)
 
@@ -395,7 +403,7 @@ def parse_opt():
     parser.add_argument("--dnn", action="store_true", help="use OpenCV DNN for ONNX inference")
     parser.add_argument("--vid-stride", type=int, default=1, help="video frame-rate stride")
     parser.add_argument('--ratio', type=int, default=50, help='multiple ratio to mosaic_ratio')
-    parser.add_argument("--reference", type=str, default=ROOT / "reference_face.jpg", help="reference face image path")
+    parser.add_argument("--reference", type=str, help="reference face image path")
 
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand

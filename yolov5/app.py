@@ -1,22 +1,41 @@
 from flask import Flask, request, render_template
-import cv2
-import numpy as np
-import torch
-import shutil
 import os
-from datetime import datetime
+import boto3
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
 app = Flask(__name__)
+# import cv2
+# import numpy as np
+# import torch
+# import shutil
+# from datetime import datetime
 
 # # YOLOv5 모델 로드
 # model = torch.hub.load('ultralytics/yolov5', 'yolov5s', force_reload=True)
 
 # 업로드된 파일이 저장될 디렉토리 경로
-UPLOAD_FOLDER = 'uploads'
+upload_folder = 'uploads'
+croped_folder = 'croped'
 video_folder = "video_uploads"
-reference_folder = 'reference'
 # 허용할 파일 확장자
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov'}
 detect_folder =""
+
+# S3 클라이언트 생성
+s3 = boto3.client('s3', 
+                  aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                  aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'))
+bucket_name = os.getenv('AWS_S3_BUCKET_NAME')
+
+def download_file_from_s3(file_name, destination_folder):
+    s3.download_file(bucket_name, file_name, os.path.join(destination_folder, file_name))
+
+def upload_file_to_s3(file_path, file_name):
+    s3.upload_file(file_path, bucket_name, file_name)
+
 # 파일 확장자를 체크하는 함수
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -24,55 +43,61 @@ def allowed_file(filename):
     # and -> 두 개의 조건이 모두 참(True)일 때 전체 표현식이 참
     # .rsplit() -> 문자열을 오른쪽부터 지정된 구분자를 기준으로 분할하는 메서드
 
+def get_file_type(filename):
+    return '.' + filename.rsplit('.', 1)[1].lower()
+
+def get_file_name(filename):
+    return filename.rsplit('.',1)[0].lower()
+
 # 이미지 파일을 바이트 스트림으로 읽어와 반환하는 함수
 def read_image(file_path):
     with open(file_path, 'rb') as file :
         image_bytes = file.read()
     return image_bytes
 
+reference_face_path = ""
+saved_name = ""
+file_size = ""
+file_type = ""
+file_name = ""
 # 홈페이지 라우트
-@app.route('/')
-def home():
-    return render_template('index.html')
-
-reference_face_path = "data/reference_face.jpg"
+# @app.route('/')
+# def home():
+#     return render_template('index.html')
 # 이미지 업로드 라우트
 @app.route('/detect', methods=['POST'])
-def upload_file():
+def mosaic_file():
     detect_folder =""
-    # 파일이 업로드 되었는지 확인
-    if 'file' not in request.files:
-        return 'No file part'
-    
-    file = request.files['file']
+    file_name = request.form['file_name']
+    croped_file_name = request.form['croped_file_name']
     ratio = request.form['ratio']
-
-    print(type(ratio))
-    print(ratio)
-
+    
     # 파일이 비어 있는지 확인
-    if file.filename == '':
-        return 'No selected file'
+    if file_name == '':
+        return 'No file name provided'
     
     # 파일이 허용된 확장자인지 확인(file이 비어있으면 false AND 확장자가 올바르지 않으면 false)
-    if file and allowed_file(file.filename):
+    if allowed_file(file_name):
         # 파일을 업로드할 디렉토리 생성(increment 로직 추가 필요)
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
         
+        if not os.path.exists(croped_folder):
+            os.makedirs(croped_folder)
         # 파일을 저장할 경로 설정
         # os.path.join : 인수에 전달된 2개의 문자열을 결합하여, 1개의 경로로 할 수 있다. 인자 사이에는 /가 포함됨.
-        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-        
-        # 파일 저장
-        file.save(filepath)
-        
+        filepath = os.path.join(upload_folder, file_name)
+        croped_path = os.path.join(croped_folder, croped_file_name)
+
+        # S3에서 파일 다운로드
+        download_file_from_s3(file_name, upload_folder)
+        download_file_from_s3(croped_file_name, croped_folder)
+
         # 모자이크할 이미지 저장된 경로
         dir_path= filepath
+
         # terminal 명령어 파이썬 내에서 실행
-        # os.system(f'copy "{filepath}" "{os.path.join(UPLOAD_FOLDER, "hello2.jpg")}"')
-        # python detect.py --weights yolov5s.pt --img 640 --conf 0.25 --source data/images/zidane.jpg
-        os.system(f'python detect.py --weights best.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --reference "{reference_face_path}"')
+        os.system(f'python detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --reference "{croped_path}"')
 
 
         # 기존에 생성된 exp 폴더의 번호 중 가장 큰 번호 찾기
@@ -88,32 +113,47 @@ def upload_file():
         else:
             print("'exp' 로 시작하는 폴더가 없습니다.")
 
-        detect_path = os.path.join(detect_folder, file.filename)
-        return read_image(detect_path)
+        detect_path = os.path.join(detect_folder, file_name)
+
+        # 모자이크 처리된 파일을 S3에 업로드  
+        saved_name = f"mosaic_{file_name}"
+        file_size = os.path.getsize(detect_path)
+        file_type = get_file_type(saved_name)
+        file_name = get_file_name(saved_name)
+        upload_file_to_s3(detect_path, f"mosaic_{file_name}")
+
+        # SpringBoot로 json type으로 S3에 저장된 이름, 확장자명, 파일 사이즈 넘겨주기
+        data = {'file_name': f'{saved_name}', 'file_size': f'{file_size}', 'file_type': f'{file_type}', 'file_name': f'{file_name}'}
+        json.dumps(data)
+        print(data)
+        return data
     else:
         return 'Allowed file types are png, jpg, jpeg, gif'
+# 받은 이미지들은 다시 끝나면 삭제
+# 
 
-# 비디오 파일 처리를 위한 라우트 추가
-@app.route('/detect_video', methods=['POST'])
-def upload_video():
+# 비디오 파일 처리를 위한 api 추가
+@app.route('/video_detect', methods=['POST'])
+def mosaic_video():
     detect_folder = ""
-    if 'file' not in request.files:
-        return 'No file part'
-    file = request.files['file']
+    file_name = request.form['file_name']
     ratio = request.form['ratio']
 
-    if file.filename == '':
+    if file_name == '':
         return 'No selected file'
 
-    if file and allowed_file(file.filename):
+    if allowed_file(file_name):
         if not os.path.exists(video_folder):
             os.makedirs(video_folder)
 
-        filepath = os.path.join(video_folder, file.filename)
-        file.save(filepath)
+        filepath = os.path.join(video_folder, file_name)
+
+        # S3에서 파일 다운로드
+        download_file_from_s3(file_name, video_folder)
+
         video_path = filepath
 
-        os.system(f'python detect.py --weights best.pt --img 640 --conf 0.25 --source "{video_path}"')
+        os.system(f'python video_detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{video_path}" --ratio {ratio}')
 
         exp_folders = [f.path for f in os.scandir("runs/detect") if f.is_dir() and f.name.startswith('exp')]
         exp_folders.sort(key=lambda x: os.path.getmtime(x), reverse=True)
@@ -124,8 +164,20 @@ def upload_video():
         else:
             print("'exp' 로 시작하는 폴더가 없습니다.")
 
-        detect_path = os.path.join(detect_folder, file.filename)
-        return read_image(detect_path)
+        detect_path = os.path.join(detect_folder, file_name)
+
+        # 모자이크 처리된 파일을 S3에 업로드  
+        saved_name = f"mosaic_{file_name}"
+        file_size = os.path.getsize(detect_path)
+        file_type = get_file_type(saved_name)
+        file_name = get_file_name(saved_name)
+        upload_file_to_s3(detect_path, saved_name)
+
+        # SpringBoot로 json type으로 S3에 저장된 이름, 확장자명, 파일 사이즈 넘겨주기
+        data = {'file_name': f'{file_name}', 'file_size': f'{file_size}', 'file_type': f'{file_type}'}
+        json.dumps(data)
+        print(data)
+        return data
     else:
         return 'Allowed file types are png, jpg, jpeg, gif, mp4, avi, mov'
 if __name__ == '__main__':

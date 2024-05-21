@@ -1,7 +1,7 @@
 # YOLOv5 🚀 by Ultralytics, AGPL-3.0 license
 """
 Run YOLOv5 detection inference on images, videos, directories, globs, YouTube, webcam, streams, etc.
-
+# 동영상 전체 모자이크
 Usage - sources:
     $ python detect.py --weights yolov5s.pt --source 0                               # webcam
                                                      img.jpg                         # image
@@ -35,9 +35,6 @@ import platform
 import sys
 import pathlib
 from pathlib import Path
-import numpy as np
-import ffmpeg
-import subprocess
 
 import torch
 
@@ -262,21 +259,24 @@ def run(
                             fps = vid_cap.get(cv2.CAP_PROP_FPS)
                             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            # 비트레이트 설정
+                            # bitrate = vid_cap.get(cv2.CAP_PROP_BITRATE)
                         else:  # stream
                             fps, w, h = 30, im0.shape[1], im0.shape[0]
                         save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos
-                        vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+
+                        vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h)) # bitrate = bitrate
                     vid_writer[i].write(im0)
         
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
 
-    # Add audio to the output video
-    input_video = str(source)
-    output_video = save_path
-    command = f'ffmpeg -i "{input_video}" -i "{output_video}" -c:v copy -c:a aac -strict experimental -map 0:a:0 -map 1:v:0 "{output_video}"'
-    subprocess.call(command, shell=True)
+    # # Add audio to the output video
+    # input_video = str(source)
+    # output_video = save_path
+    # command = f'ffmpeg -i "{input_video}" -i "{output_video}" -c:v copy -c:a aac -strict experimental -map 0:a:0 -map 1:v:0 "{output_video}"'
+    # subprocess.call(command, shell=True)
     
     # Print results
     t = tuple(x.t / seen * 1e3 for x in dt)  # speeds per image
