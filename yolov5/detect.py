@@ -34,10 +34,13 @@ import os
 import platform
 import sys
 import pathlib
-import face_recognition
+# import face_recognition
 from pathlib import Path
 import numpy as np
+from deepface import DeepFace
 import torch
+from tensorflow import keras
+import time
 
 temp = pathlib.PosixPath
 pathlib.PosixPath = pathlib.WindowsPath
@@ -70,7 +73,13 @@ from utils.general import (
 )
 from utils.torch_utils import select_device, smart_inference_mode
 
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'avi', 'mov'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    
 @smart_inference_mode()
 def run(
     weights=ROOT / "best.pt",  # model path or triton URL
@@ -188,6 +197,7 @@ def run(
         # Process predictions
         # pred 리스트에서 하나씩 객체 탐지 결과(det)를 가져와 처리
         # enumerate를 사용하여 인덱스(i)와 값(det)을 동시에 가져옵니다
+        start = time.time()
         for i, det in enumerate(pred):  # per image
             seen += 1
             if webcam:  # batch_size >= 1
@@ -197,7 +207,7 @@ def run(
             else:
                 # im0s는 원본 이미지 리스트
                 p, im0, frame = path, im0s.copy(), getattr(dataset, "frame", 0)
-
+            
             p = Path(p)  # to Path
             # 결과 저장 경로(save_path)와 텍스트 파일 경로(txt_path) 
             # 텍스트 파일 이름에는 frame 번호가 추가됨
@@ -219,30 +229,9 @@ def run(
                     n = (det[:, 5] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
-                # 모자이크 처리 제외 reference_face
-                reference_face_path = reference
-                if reference_face_path:
-                    reference_face = cv2.imread(reference_face_path)
-                    reference_face_locations = face_recognition.face_locations(reference_face)
-                    print("Reference face locations:", reference_face_locations)
-                    
-                    if len(reference_face_locations) > 0:
-                        top, right, bottom, left = reference_face_locations[0]
-                        reference_face_image = reference_face[top:bottom, left:right]
-                        reference_face_image = np.array(reference_face_image, dtype=np.uint8)
-                        reference_face_encodings = face_recognition.face_encodings(reference_face_image)
-                        
-                        if len(reference_face_encodings) > 0:
-                            reference_face_encoding = reference_face_encodings[0]
-                            print("Reference face encoding:", reference_face_encoding)
-                        else:
-                            print("Failed to encode reference face.")
-                            reference_face_encoding = None
-                    else:
-                        print("No face detected in the reference image.")
-                        reference_face_encoding = None
-                else:
-                    reference_face_encoding = None
+                # 모자이크 처리 제외 reference_path
+                reference_path = reference
+                print(reference_path)
 
                 # Write results
                 # 각 객체의 바운딩 박스 좌표(xyxy), 신뢰도(conf), 클래스(cls)를 가져옵니다.
@@ -275,47 +264,33 @@ def run(
                             # 탐지된 객체의 바운딩 박스 좌표(xyxy)를 정수형으로 변환하여 x1, y1, x2, y2에 저장합니다. 그리고 원본 이미지(im0)에서 해당 영역(roi)을 추출합니다.
                             x1, y1, x2, y2 = map(int, xyxy)
                             face = im0[y1:y2, x1:x2]
-                            
-                            face_locations = face_recognition.face_locations(face)
-                            print("Detected face locations:", face_locations)
-                            
-                            if len(face_locations) > 0:
-                                top, right, bottom, left = face_locations[0]
-                                face_image = face[top:bottom, left:right]
-                                face_image = np.array(face_image, dtype=np.uint8)  # Convert face_image to numpy.ndarray
-                                face_encodings = face_recognition.face_encodings(face_image)
-                                
-                                if len(face_encodings) > 0:
-                                    face_encoding = face_encodings[0]
-                                    
-                                    if reference_face_encoding is not None:
-                                        match = face_recognition.compare_faces([reference_face_encoding], face_encoding, tolerance=0.52)[0] # tolerence: 비교할 때 기준 확률 정하는 매개변수
-                                        print("compare_faces로 비교한 result:", match)
-                                        
-                                        if not match:
-                                            # 일치하지 않는 얼굴만 모자이크 처리
-                                            roi = im0[y1+top:y1+bottom, x1+left:x1+right]
-                                            roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)
-                                            roi = cv2.resize(roi, (right-left, bottom-top), interpolation=cv2.INTER_NEAREST)
-                                            im0[y1+top:y1+bottom, x1+left:x1+right] = roi
-                                # else: # 모두 매치하지 않을 경우 모두 모자이크 -> 코드
-                                #     roi = im0[y1:y2, x1:x2]
-                                #     # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
-                                #     roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
-                                #     roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
-                                #     # 모자이크 적용
-                                #     # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
-                                #     im0[y1:y2, x1:x2] = roi  
+
+                            face_array = np.array(face)
+                            if allowed_file(reference_path):
+                                try:
+                                    result = DeepFace.verify(
+                                        img1_path= reference_path,
+                                        img2_path= face_array,
+                                        enforce_detection=False,
+                                    )
+                                    print("얼굴 비교 시도")
+                                    if not result['verified']:
+                                        # reference_face가 없는 경우 모든 얼굴 모자이크 처리
+                                        roi = im0[y1:y2, x1:x2]
+                                        # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
+                                        roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                        roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                        # 모자이크 적용
+                                        # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
+                                        im0[y1:y2, x1:x2] = roi
+                                except ValueError as e:
+                                    print(f"Error comparing reference face: {e}")
                             else:
-                                # reference_face가 없는 경우 모든 얼굴 모자이크 처리
+                                print("그냥 모자이크 처리")
                                 roi = im0[y1:y2, x1:x2]
-                                # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
                                 roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
                                 roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
-                                # 모자이크 적용
-                                # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
-                                im0[y1:y2, x1:x2] = roi    
-                        
+                                im0[y1:y2, x1:x2] = roi
                         # else:
                             # 그리고 hide_labels와 hide_conf 옵션에 따라 출력할 레이블 텍스트를 결정
                             # label = None if hide_labels else (names[c] if hide_conf else f"{names[c]} {conf:.2f}")
@@ -345,7 +320,7 @@ def run(
                         if isinstance(vid_writer[i], cv2.VideoWriter):
                             vid_writer[i].release()  # 이전에 열린 vid_writer[i]가 있다면 해제
                         if vid_cap:  # video이면 vid_cap에서 FPS, 가로 해상도, 세로 해상도를 가져옵니다.
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS) 
+                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
                             w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                             # 비트레이트 설정
@@ -358,7 +333,8 @@ def run(
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
-
+    end = time.time()
+    print(f"{end - start:.5f} sec")
     # Print results
     # dt: 시간 측정값들의 리스트
     t = tuple(x.t / seen * 1e3 for x in dt)  # x.t / seen * 1e3는 각 이미지당 걸린 시간을 밀리초 단위로 변환
