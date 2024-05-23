@@ -68,15 +68,28 @@ file_name = ""
 @app.route('/detect', methods=['POST'])
 def mosaic_file():
     detect_folder =""
-    file_name = request.form['file_name']
+    get_data = request.get_json()
+    file_name = get_data['original']['original_file_name']
+    print(file_name)
     croped_file_name = ""
     try:
-        croped_file_name = request.form['croped_file_name']
+        croped_file_name = get_data['area']['area_0_file_name']
+        print(croped_file_name)
     except:
         print("예외처리할 대상 없음.")
 
-    print(type(croped_file_name))
-    ratio = request.form['ratio']
+    # 모자이크 옵션 딕셔너리 생성
+    ratio = get_data['data']['intensityAuto']
+    carNumber = get_data['data']['carNumber']
+    carNumber = True if carNumber.lower() == "true" else False
+    face = get_data['data']['face']
+    face = True if face.lower() == "true" else False
+    print(face)
+    knife = get_data['data']['knife']
+    knife = True if knife.lower() == "true" else False
+    print(knife)
+    cigar = get_data['data']['cigar']
+    cigar = True if cigar.lower() == "true" else False
     
     # 파일이 비어 있는지 확인
     if file_name == '':
@@ -109,7 +122,7 @@ def mosaic_file():
         dir_path= filepath
 
         # terminal 명령어 파이썬 내에서 실행
-        os.system(f'python detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --reference "{croped_path}"')
+        os.system(f'python detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --carNumber "{carNumber}" --face "{face}" --knife "{knife}" --cigar "{cigar}" --reference "{croped_path}" ')
 
 
         # 기존에 생성된 exp 폴더의 번호 중 가장 큰 번호 찾기
@@ -147,17 +160,19 @@ def mosaic_file():
             video.write_videofile(output_path, fps=video.fps)
 
             saved_name = f"mosaic_{file_name}"
+        else: 
+            output_path = os.path.join(detect_folder, file_name)    
+            saved_name = f"mosaic_{file_name}"
+
         # 모자이크 처리된 파일을 S3에 업로드  
         file_size = os.path.getsize(output_path)
         file_type = get_file_type(saved_name)
-        file_name = get_file_name(saved_name)
         upload_file_to_s3(output_path, f"{saved_name}")
 
         # SpringBoot로 json type으로 S3에 저장된 이름, 확장자명, 파일 사이즈 넘겨주기
-        data = {'file_name': f'{file_name}', 'file_size': f'{file_size}', 'file_type': f'{file_type}', 'file_name': f'{file_name}'}
-        json.dumps(data)
-        print(data)
-        return data
+        res = {"file_name": f'{saved_name}', "file_size": int(file_size), "file_type": f'{file_type}', "file_rename": f'{saved_name}'}
+        print(res)
+        return res
     else:
         return 'Allowed file types are png, jpg, jpeg, gif'
 # 받은 이미지들은 다시 끝나면 삭제

@@ -41,6 +41,7 @@ from deepface import DeepFace
 import torch
 from tensorflow import keras
 import time
+import json
 
 temp = pathlib.PosixPath
 pathlib.PosixPath = pathlib.WindowsPath
@@ -111,7 +112,11 @@ def run(
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
     ratio= 50,
-    reference = "reference_face.jpg"
+    reference = "reference_face.jpg",
+    carNumber=False,
+    face=False,
+    knife=False,
+    cigar = False
 ):
     source = str(source) # source는 이미지, 비디오, 웹캠 등의 입력 소스를 나타내는 변수
     save_img = not nosave and not source.endswith(".txt")  # save inference images 추론 결과 이미지로 저장할 것인지
@@ -198,6 +203,7 @@ def run(
         # pred 리스트에서 하나씩 객체 탐지 결과(det)를 가져와 처리
         # enumerate를 사용하여 인덱스(i)와 값(det)을 동시에 가져옵니다
         start = time.time()
+
         for i, det in enumerate(pred):  # per image
             seen += 1
             if webcam:  # batch_size >= 1
@@ -252,45 +258,69 @@ def run(
 
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
-                        if names[c] == 'cigar' or names[c] == 'licensePlate' or names[c] == 'knife':
-                            x1, y1, x2, y2 = map(int, xyxy)
-                            roi = im0[y1:y2, x1:x2]
-                            roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
-                            roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
-                            im0[y1:y2, x1:x2] = roi
-
-                        if names[c] == 'face':
-                            # bounding box 좌표 추출
-                            # 탐지된 객체의 바운딩 박스 좌표(xyxy)를 정수형으로 변환하여 x1, y1, x2, y2에 저장합니다. 그리고 원본 이미지(im0)에서 해당 영역(roi)을 추출합니다.
-                            x1, y1, x2, y2 = map(int, xyxy)
-                            face = im0[y1:y2, x1:x2]
-
-                            face_array = np.array(face)
-                            if allowed_file(reference_path):
-                                try:
-                                    result = DeepFace.verify(
-                                        img1_path= reference_path,
-                                        img2_path= face_array,
-                                        enforce_detection=False,
-                                    )
-                                    print("얼굴 비교 시도")
-                                    if not result['verified']:
-                                        # reference_face가 없는 경우 모든 얼굴 모자이크 처리
-                                        roi = im0[y1:y2, x1:x2]
-                                        # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
-                                        roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
-                                        roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
-                                        # 모자이크 적용
-                                        # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
-                                        im0[y1:y2, x1:x2] = roi
-                                except ValueError as e:
-                                    print(f"Error comparing reference face: {e}")
-                            else:
-                                print("그냥 모자이크 처리")
+                        if names[c] == 'cigar':
+                            if cigar:
+                                x1, y1, x2, y2 = map(int, xyxy)
                                 roi = im0[y1:y2, x1:x2]
                                 roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
                                 roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
                                 im0[y1:y2, x1:x2] = roi
+
+                        if names[c] == 'licensePlate':
+                            if carNumber:
+                                x1, y1, x2, y2 = map(int, xyxy)
+                                roi = im0[y1:y2, x1:x2]
+                                roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                im0[y1:y2, x1:x2] = roi
+
+                        if names[c] == 'knife':
+                            if knife:
+                                x1, y1, x2, y2 = map(int, xyxy)
+                                roi = im0[y1:y2, x1:x2]
+                                roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                im0[y1:y2, x1:x2] = roi
+
+                        if names[c] == 'face':
+                            # bounding box 좌표 추출
+                            # 탐지된 객체의 바운딩 박스 좌표(xyxy)를 정수형으로 변환하여 x1, y1, x2, y2에 저장합니다. 그리고 원본 이미지(im0)에서 해당 영역(roi)을 추출합니다.
+                            if face:
+                                x1, y1, x2, y2 = map(int, xyxy)
+                                face0 = im0[y1:y2, x1:x2]
+
+                                face_array = np.array(face0)
+                                if allowed_file(reference_path):
+                                    try:
+                                        result = DeepFace.verify(
+                                            img1_path= reference_path,
+                                            img2_path= face_array,
+                                            enforce_detection=False,
+                                        )
+                                        print("얼굴 비교 시도")
+                                        if not result['verified']:
+                                            # reference_face가 없는 경우 모든 얼굴 모자이크 처리
+                                            roi = im0[y1:y2, x1:x2]
+                                            # 모자이크 처리 -> 0.05일때 진했음(작을수록 진해짐)
+                                            roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                            roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                            # 모자이크 적용
+                                            # 원본 이미지(im0)의 해당 영역에 모자이크 처리된 roi를 대입
+                                            im0[y1:y2, x1:x2] = roi
+                                    except ValueError as e:
+                                        print(f"Error comparing reference face: {e}")
+                                else:
+                                    print("그냥 모자이크 처리")
+                                    roi = im0[y1:y2, x1:x2]
+                                    roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                                    roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                                    im0[y1:y2, x1:x2] = roi
+                        # else:
+                        #     print("그냥 모자이크 처리")
+                        #     roi = im0[y1:y2, x1:x2]
+                        #     roi = cv2.resize(roi, (0, 0), fx=5/ratio, fy=5/ratio)  # 모자이크 처리할 영역 축소
+                        #     roi = cv2.resize(roi, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)  # 원래 크기로 확대
+                        #     im0[y1:y2, x1:x2] = roi
                         # else:
                             # 그리고 hide_labels와 hide_conf 옵션에 따라 출력할 레이블 텍스트를 결정
                             # label = None if hide_labels else (names[c] if hide_conf else f"{names[c]} {conf:.2f}")
@@ -380,6 +410,11 @@ def parse_opt():
     parser.add_argument("--vid-stride", type=int, default=1, help="video frame-rate stride")
     parser.add_argument('--ratio', type=int, default=50, help='multiple ratio to mosaic_ratio')
     parser.add_argument("--reference", type=str, help="reference face image path")
+    parser.add_argument("--carNumber", default=False, help="mosaic options")
+    parser.add_argument("--face", default=False, help="mosaic options")
+    parser.add_argument("--knife", default=False, help="mosaic options")
+    parser.add_argument("--cigar", default=False, help="mosaic options")
+
 
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
