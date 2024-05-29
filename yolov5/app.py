@@ -1,13 +1,16 @@
 from flask import Flask, request, render_template
 import os
 import boto3
-import json
 from dotenv import load_dotenv
 from moviepy.editor import *
+from flask_cors import CORS
+
+# from flask_cors import CORS
 
 load_dotenv()
 
 app = Flask(__name__)
+# CORS(app, resources={r"/*": {"origins": "http://3.36.146.181:8083"}})
 # import cv2
 # import numpy as np
 # import torch
@@ -122,7 +125,7 @@ def mosaic_file():
         dir_path= filepath
 
         # terminal 명령어 파이썬 내에서 실행
-        os.system(f'python detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --carNumber "{carNumber}" --face "{face}" --knife "{knife}" --cigar "{cigar}" --reference "{croped_path}" ')
+        os.system(f'python detect.py --weights 4class.pt --img 640 --conf 0.25 --source "{dir_path}" --ratio {ratio} --carNumber "{carNumber}" --face "{face}" --knife "{knife}" --cigar "{cigar}" --reference "{croped_path}"')
 
 
         # 기존에 생성된 exp 폴더의 번호 중 가장 큰 번호 찾기
@@ -225,5 +228,5 @@ def mosaic_file():
 #         return data
 #     else:
 #         return 'Allowed file types are png, jpg, jpeg, gif, mp4, avi, mov'
-# if __name__ == '__main__':
-#     app.run(debug=True, host='127.0.0.1', port= 5000)
+if __name__ == '__main__':
+    app.run()
